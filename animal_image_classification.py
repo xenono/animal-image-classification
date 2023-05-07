@@ -1,25 +1,24 @@
 import sys
 from os import listdir
 import random
-from PySide6.QtCore import QTimer
-from PySide6.QtGui import QPixmap, Qt
-from PySide6.QtWidgets import QLabel
+from PyQt5.QtWidgets import QLabel, QApplication, QVBoxLayout, QWidget, QProgressBar, QHBoxLayout
+from PyQt5.QtCore import QTimer, Qt, QEventLoop
+from PyQt5.QtGui import QPixmap
 
 import model
-from PySide6 import QtCore, QtWidgets, QtGui
 
 
-class MyWidget(QtWidgets.QWidget):
+class MyWidget(QWidget):
     def __init__(self, cnn_model):
         super().__init__()
-        self.main_layout = QtWidgets.QVBoxLayout(self)
+        self.main_layout = QVBoxLayout(self)
 
         self.model = cnn_model
-        self.test_image_path = "dataset/manual_test/"
+        self.test_image_path = "dataset/manual_test_scaled/"
         self.images = listdir(self.test_image_path)
 
         self.image_counter = 0
-        self.image_height = 500
+        self.image_height = 200
         self.image_label = QLabel()
         self.setup_ui()
         self.set_image()
@@ -27,9 +26,9 @@ class MyWidget(QtWidgets.QWidget):
         # Timer setup
         self.image_change_timer = QTimer(self)
         self.image_change_timer.timeout.connect(self.change_image)
-        self.image_change_timer.setInterval(2500)
-        self.image_change_timer.start()
+        self.image_change_timer.setInterval(3000)
 
+        self.image_change_timer.start()
 
     def setup_ui(self):
         self.main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -52,10 +51,10 @@ class MyWidget(QtWidgets.QWidget):
         self.main_layout.addLayout(animal_3_label)
 
     def class_prediction_label(self, classname):
-        layout = QtWidgets.QHBoxLayout()
+        layout = QHBoxLayout()
         label = QLabel(classname)
         label.setFixedWidth(75)
-        progress_bar = QtWidgets.QProgressBar(self)
+        progress_bar = QProgressBar(self)
         progress_bar.setGeometry(50, 100, 150, 30)
         progress_bar.setFixedWidth(550)
         progress_bar.setValue(0)
@@ -89,21 +88,30 @@ class MyWidget(QtWidgets.QWidget):
         self.image_counter += 1
 
     def set_progress_bars(self, predictions):
-        progress_bars = self.findChildren(QtWidgets.QProgressBar)
+        progress_bars = self.findChildren(QProgressBar)
         predictions = predictions * 100
         progress_bars[0].setValue(round(predictions[0]))
         progress_bars[1].setValue(round(predictions[1]))
         progress_bars[2].setValue(round(predictions[2]))
-        # progress_bars[3].setValue(round(predictions[3]))
 
 
 if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
+    app = QApplication([])
     model = model.Model()
 
     widget = MyWidget(model)
-
+    style_sheet = """
+        QWidget {
+            background-color: #333;
+            color: #fff;
+        }
+        QProgressBar {
+            background-color: #555;
+        }
+        """
+    widget.setStyleSheet(style_sheet)
     widget.resize(1000, 800)
+
     widget.show()
 
     sys.exit(app.exec())

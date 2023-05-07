@@ -4,25 +4,28 @@ from os.path import isfile, join, isdir
 import tensorflow as tf
 import numpy as np
 from keras import utils
-from keras.preprocessing.image import ImageDataGenerator
-from keras.utils import load_img, img_to_array
+from keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
 
-img_width = 64
-img_height = 64
-batch_size = 64
+img_width = 128
+img_height = 128
+batch_size = 32
 
 
 class Model:
     def __init__(self):
-        self.test_images_folder_path = "dataset/manual_test"
+        # Allow memory growth for the GPU
+        physical_devices = tf.config.experimental.list_physical_devices('GPU')
+        tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+        self.test_images_folder_path = "dataset/manual_test_scaled"
+        self.load_model_path = "saved_models/model-83-82-70"
+        self.input_shape = (img_width, img_height, 3)
+        self.classes = {0: "Cat", 1: "Cow", 2: "Sheep"}
         # Preprocessing dataset
         self.train_data_gen = ImageDataGenerator(
-            rescale=1. / 255,
-            shear_range=0.2,
-            zoom_range=0.2,
             horizontal_flip=True,
-            width_shift_range=0.2,
-            height_shift_range=0.2,
+            vertical_flip=True,
+            channel_shift_range=0.2,
             rotation_range=20,
         )
 
@@ -32,32 +35,32 @@ class Model:
             batch_size=batch_size,
             class_mode='categorical'
         )
-        self.test_set = self.train_data_gen.flow_from_directory(
+
+        self.test_set_data_gen = ImageDataGenerator()
+
+        self.test_set = self.test_set_data_gen.flow_from_directory(
             'dataset/test_set_scaled',
             target_size=(img_width, img_height),
             batch_size=batch_size,
             class_mode='categorical'
         )
-        self.classes = {}
-        for key, value in self.training_set.class_indices.items():
-            self.classes[value] = (key[:-1] if key != "buses" else key[:-2]).capitalize()
 
-        if not isdir("saved_models/model") or not listdir("saved_models/model"):
+        if not isfile(self.load_model_path):
             self.model = self.construct_cnn()
         else:
             self.model = self.load_model()
 
-        # print(self.model.summary())
-        print(self.training_set.class_indices)
-        # self.model.evaluate(self.test_set)
-
-        print(self.get_per_class_accuracy(["cats","cows","sheeps"]))
-
     def construct_cnn(self):
         cnn = tf.keras.models.Sequential()
+        cnn.add(tf.keras.layers.Input(shape=self.input_shape))
+        cnn.add(tf.keras.layers.Conv2D(filters=32, kernel_size=3, activation='relu'))
+        cnn.add(tf.keras.layers.MaxPool2D(pool_size=1, strides=1))
+
+        cnn.add(tf.keras.layers.Conv2D(filters=32, kernel_size=3, activation='relu'))
+        cnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
 
         cnn.add(tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu'))
-        cnn.add(tf.keras.layers.MaxPool2D(pool_size=1, strides=1))
+        cnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
 
         cnn.add(tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu'))
         cnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
@@ -65,48 +68,49 @@ class Model:
         cnn.add(tf.keras.layers.Conv2D(filters=128, kernel_size=3, activation='relu'))
         cnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
 
-        cnn.add(tf.keras.layers.Conv2D(filters=256, kernel_size=3, activation='relu'))
-        cnn.add(tf.keras.layers.MaxPool2D(pool_size=2, strides=2))
-
         cnn.add(tf.keras.layers.Flatten())
-        cnn.add(tf.keras.layers.Dense(units=512, activation='relu'))
+
         cnn.add(tf.keras.layers.Dense(units=256, activation='relu'))
-        cnn.add(tf.keras.layers.Dense(units=128, activation='relu'))
+        cnn.add(tf.keras.layers.Dropout(0.2))
+        cnn.add(tf.keras.layers.Dense(units=256, activation='relu'))
         cnn.add(tf.keras.layers.Dense(units=3, activation='softmax'))
 
         cnn.compile(optimizer="adam",
                     loss='categorical_crossentropy',
                     metrics=['accuracy'])
-        cnn.fit(x=self.training_set, validation_data=self.test_set, epochs=40)
-        cnn.save('saved_models/model')
+
+        # Save models per epoch
+        model_path = "saved_models/" + "CNN" + "/Epoch{epoch:02d}-L{loss:.2f}-A{accuracy:.2f}-VL{val_loss:.2f}-VA{val_accuracy:.2f}.hdf5"
+        model_save_callback = tf.keras.callbacks.ModelCheckpoint(model_path, save_best_only=False, monitor='loss')
+
+        cnn.fit(x=self.training_set, validation_data=self.test_set, epochs=25, callbacks=[model_save_callback])
+        cnn.save('saved_models/model', save_format="h5")
 
         return cnn
 
     def load_model(self):
-        return tf.keras.models.load_model("saved_models/model")
+        return tf.keras.models.load_model(self.load_model_path)
 
     def predict_single(self, img_name):
         img_path = self.test_images_folder_path + "/" + img_name
 
-        test_image = utils.load_img(img_path, target_size=(img_width, img_height))
-        test_image = utils.img_to_array(test_image)
+        test_image = load_img(img_path, target_size=(img_width, img_height))
+        test_image = img_to_array(test_image)
         test_image = np.expand_dims(test_image, axis=0)
-        predictions = (tf.nn.softmax(self.model.predict(test_image)[0])).numpy()
         result = self.model.predict(test_image)[0]
         item_index = np.where(result == 1)
 
         print("--- ---")
         print("Image name: ", img_name)
-        print(predictions)
         if len(item_index[0]):
             print("Guess: ", self.classes[item_index[0][0]])
         for index, prob in enumerate(result):
             print(self.classes[index], ": ", prob)
 
-        return predictions
+        return result
 
     def predict_single_class(self, vehicle_type, img):
-        img_path = "dataset/test_set/" + vehicle_type + "/" + img
+        img_path = "dataset/test_set_scaled/" + vehicle_type + "/" + img
         test_image = load_img(img_path, target_size=(img_width, img_height))
         test_image = img_to_array(test_image)
         test_image = np.expand_dims(test_image, axis=0)
@@ -121,7 +125,7 @@ class Model:
         img_count = 0
         for index, type_directory in enumerate(classes):
             print(type_directory + " start")
-            for img in listdir("dataset/test_set/" + type_directory + "/"):
+            for img in listdir("dataset/test_set_scaled/" + type_directory + "/"):
                 print(self.predict_single_class(type_directory, img), end=" ")
                 if self.predict_single_class(type_directory, img) == index:
                     score += 1
@@ -137,8 +141,3 @@ class Model:
         for key, value in score_per_class.items():
             print(key, ": ", value, "%")
 
-    def predict_multiple(self):
-        test_images = listdir(self.test_images_folder_path)
-
-        for img in test_images:
-            self.predict_single(img)
